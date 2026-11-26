@@ -231,8 +231,57 @@ namespace PicoBridge
                 HandleBridgeControl(json);
                 return;
             }
+            if (functionName == "Haptic")
+            {
+                HandleHaptic(json);
+                return;
+            }
             if (functionName == "WebRtcOffer" || functionName == "WebRtcIceCandidate")
                 _webRtcCamera?.HandleFunction(functionName, json);
+        }
+
+        /// <summary>
+        /// PC -> VR controller vibration:
+        /// {"functionName": "Haptic", "value": {"hand": "left|right|both", "amplitude": 0..1,
+        ///  "duration_ms": 0..65535, "frequency_hz": 50..500}}. amplitude 0 or duration 0 stops it.
+        /// </summary>
+        private void HandleHaptic(string json)
+        {
+            PXR_Input.VibrateType target;
+            switch (ExtractString(json, "hand"))
+            {
+                case "left": target = PXR_Input.VibrateType.LeftController; break;
+                case "right": target = PXR_Input.VibrateType.RightController; break;
+                case "both": target = PXR_Input.VibrateType.BothController; break;
+                default: return;
+            }
+            float amplitude = Mathf.Clamp01(ExtractFloat(json, "amplitude") ?? 0f);
+            int duration = Mathf.Clamp(Mathf.RoundToInt(ExtractFloat(json, "duration_ms") ?? 0f), 0, 65535);
+            int frequency = Mathf.Clamp(Mathf.RoundToInt(ExtractFloat(json, "frequency_hz") ?? 150f), 50, 500);
+            if (amplitude <= 0f || duration <= 0)
+            {
+                amplitude = 0f;
+                duration = 0;
+            }
+            PXR_Input.SendHapticImpulse(target, amplitude, duration, frequency);
+        }
+
+        private static float? ExtractFloat(string json, string key)
+        {
+            string needle = $"\"{key}\"";
+            int keyIndex = json.IndexOf(needle, System.StringComparison.Ordinal);
+            if (keyIndex < 0) return null;
+            int colon = json.IndexOf(':', keyIndex + needle.Length);
+            if (colon < 0) return null;
+            int start = colon + 1;
+            while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
+            int end = start;
+            while (end < json.Length && "+-.0123456789eE".IndexOf(json[end]) >= 0) end++;
+            if (end == start) return null;
+            if (float.TryParse(json.Substring(start, end - start), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float value))
+                return value;
+            return null;
         }
 
         private void HandleBridgeControl(string json)
